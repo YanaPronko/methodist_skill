@@ -1,0 +1,14 @@
+__pycache__/
+render_program/
+*.pyc
+
+# Generated curriculum outputs
+*.pdf
+*.docx
+*.txt
+
+# Keep skill template assets tracked
+!.agents/skills/methodist-programs/assets/*.docx
+
+# Keep the portable skill archive tracked explicitly if needed
+!methodist-programs-cloud.zip

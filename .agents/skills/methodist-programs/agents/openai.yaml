@@ -1,0 +1,4 @@
+﻿interface:
+  display_name: "Методист программ"
+  short_description: "Учебные программы, УТП и Word-оформление"
+  default_prompt: "Use $methodist-programs to create or verify a professional development учебная программа and УТП with Word output."
