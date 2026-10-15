@@ -10,26 +10,86 @@ import re
 import unicodedata
 
 from openpyxl import Workbook, load_workbook
-from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.styles.differential import DifferentialStyle
+from openpyxl.styles.table import TableStyle, TableStyleElement
+from openpyxl.drawing.image import Image
+from openpyxl.drawing.spreadsheet_drawing import AnchorMarker, OneCellAnchor
+from openpyxl.drawing.xdr import XDRPositiveSize2D
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.worksheet.table import Table, TableStyleInfo
 from openpyxl.workbook.defined_name import DefinedName
 from openpyxl.formatting.rule import FormulaRule
 from openpyxl.worksheet.pagebreak import Break
 from openpyxl.utils import get_column_letter
+from openpyxl.writer.theme import theme_xml
+from xml.etree import ElementTree as ET
 
-NAVY = '17324D'
-TEAL = '087F8C'
-PALE = 'EAF3F6'
-YELLOW = 'FFF3C4'
-GRAY = '526779'
+INK = '221F1F'
+TEAL = '008685'
+TURQUOISE = '26BBA8'
+BRAND_GREEN = '40B870'
+PALE = 'F0F8F4'
+INPUT = 'E5F5EF'
+GRAY = '60756C'
 WHITE = 'FFFFFF'
-ORANGE = 'FFF0DA'
-GREEN = 'E2F2E9'
+NOTICE = 'F2F5F3'
+GREEN = 'DDF2E5'
 VERSION = 'DEMO-2026-10-v1'
 SURVEY_HEADERS = ['Код темы', 'Тема', 'Программы', 'Содержание', 'Могу читать', 'Комментарий преподавателя']
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def brand_workbook(wb):
+    """Set the actual Excel table style and theme, including filter headers."""
+    specs = [
+        ('wholeTable', DifferentialStyle(font=Font(name='Calibri', size=11, color=INK),
+                                         fill=PatternFill('solid', fgColor=WHITE))),
+        ('headerRow', DifferentialStyle(font=Font(name='Calibri', size=11, color=WHITE, bold=True),
+                                        fill=PatternFill('solid', fgColor=INK),
+                                        border=Border(bottom=Side(style='medium', color=TURQUOISE)))),
+        ('firstRowStripe', DifferentialStyle(fill=PatternFill('solid', fgColor=WHITE))),
+        ('secondRowStripe', DifferentialStyle(fill=PatternFill('solid', fgColor=PALE))),
+    ]
+    elements = []
+    for kind, style in specs:
+        elements.append(TableStyleElement(type=kind, dxfId=wb._differential_styles.add(style),
+                                         size=1 if kind.endswith('Stripe') else None))
+    wb._table_styles.tableStyle.append(TableStyle(name='RozumTable', pivot=False, table=True,
+                                                 tableStyleElement=elements))
+    wb._table_styles.defaultTableStyle = 'RozumTable'
+    ns = 'http://schemas.openxmlformats.org/drawingml/2006/main'
+    theme = ET.fromstring(wb.loaded_theme or theme_xml)
+    theme.set('name', 'Rozum')
+    scheme = theme.find(f'.//{{{ns}}}clrScheme')
+    scheme.set('name', 'Rozum')
+    colors = {'dk1': INK, 'lt1': WHITE, 'dk2': INK, 'lt2': PALE,
+              'accent1': TURQUOISE, 'accent2': BRAND_GREEN, 'accent3': TEAL,
+              'accent4': '009763', 'accent5': GRAY, 'accent6': GREEN,
+              'hlink': TEAL, 'folHlink': '009763'}
+    for name, color in colors.items():
+        target = scheme.find(f'{{{ns}}}{name}')
+        target.clear()
+        ET.SubElement(target, f'{{{ns}}}srgbClr', {'val': color})
+    wb.loaded_theme = ET.tostring(theme, encoding='utf-8', xml_declaration=True)
+
+
+def brand_stripe(ws, row, columns):
+    for col in range(1, columns + 1):
+        ws.cell(row, col).fill = PatternFill('solid', fgColor=TURQUOISE if col <= (columns+1)//2 else BRAND_GREEN)
+    ws.row_dimensions[row].height = 6
+
+
+def brand_title(ws, columns, title):
+    band(ws, 1, 1, columns - 1, title, color=WHITE, size=20, height=52, bold=True)
+    logo = ROOT / 'служебное' / 'оформление' / 'rozum_logo.png'
+    if logo.exists():
+        im = Image(logo)
+        width = 170
+        height = round(width * im.height / im.width)
+        im.anchor = OneCellAnchor(_from=AnchorMarker(col=columns-1, row=0, colOff=6*9525, rowOff=15*9525),
+                                 ext=XDRPositiveSize2D(cx=width*9525, cy=height*9525))
+        ws.add_image(im)
 
 
 def text(cell, value):
@@ -49,7 +109,7 @@ def base_sheet(ws, widths):
     ws.page_setup.fitToHeight = 0
     ws.page_margins.left = ws.page_margins.right = 0.25
     ws.page_margins.top = ws.page_margins.bottom = 0.35
-    ws.oddFooter.center.text = 'Пробная версия • &P / &N'
+    ws.oddFooter.center.text = 'rozum · Пробная версия · &P / &N'
     ws.sheet_properties.outlinePr.summaryRight = False
 
 
@@ -60,7 +120,7 @@ def band(ws, row, start, end, value, *, color=PALE, size=11, height=30, bold=Fal
             c.fill = PatternFill('solid', fgColor=color)
     c = ws.cell(row, start)
     text(c, value)
-    c.font = Font(name='Calibri', size=size, bold=bold, color=WHITE if color in (NAVY, TEAL) else NAVY)
+    c.font = Font(name='Calibri', size=size, bold=bold, color=WHITE if color in (INK, TEAL) else INK)
     c.alignment = Alignment(vertical='center', wrap_text=True, indent=1)
     ws.row_dimensions[row].height = height
 
@@ -75,10 +135,10 @@ def link(cell, label, sheet, row, column='A'):
 
 
 def input_cell(cell):
-    cell.fill = PatternFill('solid', fgColor=YELLOW)
-    cell.font = Font(name='Calibri', size=11, color=NAVY)
+    cell.fill = PatternFill('solid', fgColor=INPUT)
+    cell.font = Font(name='Calibri', size=11, color=INK)
     cell.alignment = Alignment(vertical='center', wrap_text=True)
-    cell.border = Border(bottom=Side(style='thin', color='D0AD48'))
+    cell.border = Border(bottom=Side(style='thin', color=BRAND_GREEN))
 
 
 def named(wb, name, target):
@@ -89,7 +149,7 @@ def table(ws, headers, rows, *, start=5, name='DataTable', heights=54):
     for j, h in enumerate(headers, 1):
         c = ws.cell(start, j)
         text(c, h)
-        c.fill = PatternFill('solid', fgColor=NAVY)
+        c.fill = PatternFill('solid', fgColor=INK)
         c.font = Font(name='Calibri', size=11, color=WHITE, bold=True)
         c.alignment = Alignment(vertical='center', wrap_text=True)
     ws.row_dimensions[start].height = 32
@@ -101,12 +161,12 @@ def table(ws, headers, rows, *, start=5, name='DataTable', heights=54):
                 c.value = value
             else:
                 text(c, value)
-            c.font = Font(name='Calibri', size=11, color=NAVY)
+            c.font = Font(name='Calibri', size=11, color=INK)
             c.alignment = Alignment(vertical='top', wrap_text=True)
-            c.fill = PatternFill('solid', fgColor=WHITE if i % 2 else 'F2F7FA')
+            c.fill = PatternFill('solid', fgColor=WHITE if i % 2 else PALE)
     if rows:
         t = Table(displayName=name, ref=f'A{start}:{get_column_letter(len(headers))}{start+len(rows)}')
-        t.tableStyleInfo = TableStyleInfo(name='TableStyleMedium2', showRowStripes=True)
+        t.tableStyleInfo = TableStyleInfo(name='RozumTable', showRowStripes=False)
         ws.add_table(t)
     else:
         ws.auto_filter.ref = f'A{start}:{get_column_letter(len(headers))}{start}'
@@ -117,6 +177,7 @@ def table(ws, headers, rows, *, start=5, name='DataTable', heights=54):
 
 def survey(catalog, output):
     wb = Workbook()
+    brand_workbook(wb)
     ws = wb.active
     ws.title = 'Выбор тем'
     details = wb.create_sheet('Содержание тем')
@@ -125,14 +186,14 @@ def survey(catalog, output):
     base_sheet(details, [15, 29, 29, 29, 29, 26])
     base_sheet(how, [24, 30, 30, 30, 30, 24])
     ws.sheet_properties.tabColor = TEAL
-    details.sheet_properties.tabColor = NAVY
+    details.sheet_properties.tabColor = INK
     how.sheet_properties.tabColor = GRAY
-    band(ws, 1, 1, 6, 'КАКИЕ ТЕМЫ ВЫ ГОТОВЫ ЧИТАТЬ?', color=NAVY, size=20, height=44, bold=True)
+    brand_title(ws, 6, 'КАКИЕ ТЕМЫ ВЫ ГОТОВЫ ЧИТАТЬ?')
     band(ws, 2, 1, 6, f"Пробная анкета · {len(catalog['topics'])} тем · 1 программа · работает без интернета", height=28)
     band(ws, 3, 1, 6, 'Укажите ФИО → откройте содержание → выберите «Да» или «Частично» → сохраните свою копию.', height=29)
     for cell, value in [('A4', 'Ваше ФИО'), ('E4', 'Дата анкеты'), ('A5', 'Версия'), ('E5', 'Заполнение')]:
         text(ws[cell], value)
-        ws[cell].font = Font(name='Calibri', size=11, bold=True, color=NAVY)
+        ws[cell].font = Font(name='Calibri', size=11, bold=True, color=INK)
         ws[cell].alignment = Alignment(wrap_text=True, vertical='center')
     ws.merge_cells('B4:D4')
     ws.merge_cells('B5:D5')
@@ -141,9 +202,8 @@ def survey(catalog, output):
     text(ws['F5'], 'В процессе')
     text(ws['B5'], VERSION)
     ws.row_dimensions[4].height = ws.row_dimensions[5].height = 30
-    ws['F4'].comment = Comment('Введите дату заполнения, например 15.10.2026. При желании её можно оставить пустой.', 'Инструкция')
-    band(ws, 6, 1, 6, 'Жёлтые ячейки — для ваших ответов. Пустая отметка означает «не указано». При ответе «Частично» поясните ограничения.', color=YELLOW, height=29)
-    band(ws, 7, 1, 6, 'ОБРАЗЕЦ: темы из локальной программы ПТИБ (advance), не из папок Google Drive. Для проверки формата; не полная рассылка.', color=ORANGE, height=29)
+    band(ws, 6, 1, 6, 'Светло-зелёные ячейки — для ваших ответов. Пустая отметка означает «не указано». При ответе «Частично» поясните ограничения.', color=INPUT, height=29)
+    band(ws, 7, 1, 6, 'ОБРАЗЕЦ: темы из локальной программы ПТИБ (advance), не из папок Google Drive. Для проверки формата; не полная рассылка.', color=NOTICE, height=29)
     text(ws['A8'], 'Выбрано тем:')
     ws['B8'] = '=COUNTIF(E11:E22,"Да")+COUNTIF(E11:E22,"Частично")'
     ws['B8'].font = Font(name='Calibri', size=12, bold=True, color=TEAL)
@@ -153,28 +213,31 @@ def survey(catalog, output):
     table(ws, SURVEY_HEADERS, rows, start=10, name='SurveyTopics', heights=68)
     for i, topic in enumerate(catalog['topics'], 11):
         input_cell(ws.cell(i, 5)); input_cell(ws.cell(i, 6))
-        ws.cell(i, 2).comment = Comment(topic['content'] + '\n\nИсточник: ' + topic['section'] + ', ' + topic['original_heading'], 'Содержание из программы')
         ws.row_dimensions[i].height = max(60, (len(topic['title']) // 57 + 1) * 17 + 16)
     band(ws, 24, 1, 6, 'Сохраните файл как «Анкета_Фамилия.xlsx» и отправьте организатору ЛИЧНО. Другие преподаватели ваши ответы не увидят.', height=31)
     ws.print_area = 'A1:F24'
     ws.page_setup.fitToHeight = 1
     ws.print_title_rows = '1:10'
     ws.freeze_panes = 'C11'
+    brand_stripe(ws, 9, 6)
     ready = DataValidation(type='list', formula1='"Да,Частично"', allow_blank=True)
     ready.errorTitle = 'Выберите значение из списка'
     ready.error = 'Допустимы «Да», «Частично» или пустая ячейка.'
     ready.showErrorMessage = True
+    ready.showInputMessage = False
     ready.errorStyle = 'stop'
     ready.showDropDown = False
     ws.add_data_validation(ready); ready.add('E11:E22')
     done = DataValidation(type='list', formula1='"В процессе,Выбор завершён"', allow_blank=False)
     done.showErrorMessage = True; done.errorStyle = 'stop'; done.showDropDown = False
+    done.showInputMessage = False
     ws.add_data_validation(done); done.add('F5')
     ws.conditional_formatting.add('E11:E22', FormulaRule(formula=['E11="Да"'], fill=PatternFill('solid', fgColor=GREEN)))
-    ws.conditional_formatting.add('F11:F22', FormulaRule(formula=['AND(E11="Частично",F11="")'], fill=PatternFill('solid', fgColor='FFD9B3')))
+    ws.conditional_formatting.add('F11:F22', FormulaRule(formula=['AND(E11="Частично",F11="")'], fill=PatternFill('solid', fgColor='C9EBDF')))
     for name, ref in [('LecturerName', '$B$4'), ('ResponseDate', '$F$4'), ('SurveyVersion', '$B$5'), ('CompletionState', '$F$5')]:
         named(wb, name, f"'Выбор тем'!{ref}")
-    band(details, 1, 1, 6, 'СОДЕРЖАНИЕ ТЕМ', color=NAVY, size=20, height=42, bold=True)
+    brand_title(details, 6, 'СОДЕРЖАНИЕ ТЕМ')
+    brand_stripe(details, 4, 6)
     band(details, 2, 1, 6, 'Текст перенесён из программы-образца. Ниже каждая тема показана вместе с её контекстом.', height=28)
     link(details['A3'], '← К выбору тем', 'Выбор тем', 1)
     details.row_dimensions[3].height = 24
@@ -197,10 +260,11 @@ def survey(catalog, output):
     details.freeze_panes = 'A5'
     details.print_title_rows = '1:3'
     details.print_area = f'A1:F{5+len(catalog["topics"])*7-1}'
-    band(how, 1, 1, 6, 'КАК ЗАПОЛНИТЬ АНКЕТУ', color=NAVY, size=20, height=42, bold=True)
+    brand_title(how, 6, 'КАК ЗАПОЛНИТЬ АНКЕТУ')
+    brand_stripe(how, 2, 6)
     instructions = [
         ('01 · Сохраните копию', 'Скачайте этот файл и откройте в Excel или LibreOffice Calc. В просмотрщике чата заполнение может быть недоступно.'),
-        ('02 · Представьтесь', 'На листе «Выбор тем» укажите ФИО полностью. При желании добавьте дату. Заполняйте только жёлтые ячейки.'),
+        ('02 · Представьтесь', 'На листе «Выбор тем» укажите ФИО полностью. При желании добавьте дату. Заполняйте только светло-зелёные ячейки.'),
         ('03 · Изучите темы', 'Нажмите «Открыть →» напротив темы. Содержание откроется внутри этого файла. Ссылка «← Отметить тему» вернёт к ответу.'),
         ('04 · Сделайте выбор', '«Да» — готовы читать всю тему. «Частично» — готовы читать часть: поясните, какую. Пустая ячейка означает «не указано», это не отказ.'),
         ('05 · Сохраните результат', 'Можно вернуться позже. Когда закончите, выберите «Выбор завершён». Сохраните в формате .xlsx как «Анкета_Фамилия.xlsx».'),
@@ -322,6 +386,7 @@ def consolidate(catalog, files, output):
         else:
             responses[response['key']] = response
     wb = Workbook()
+    brand_workbook(wb)
     ws = wb.active; ws.title = 'Сводный реестр'
     cat = wb.create_sheet('Каталог тем')
     forms = wb.create_sheet('Полученные анкеты')
@@ -333,7 +398,8 @@ def consolidate(catalog, files, output):
     base_sheet(programs, [22, 26, 95, 46])
     base_sheet(how, [28, 28, 28, 28, 28, 28])
     for sheet, columns in [(ws, 9), (cat, 7), (forms, 6), (programs, 4), (how, 6)]:
-        band(sheet, 1, 1, columns, 'ПРОБНЫЙ СВОДНЫЙ РЕЕСТР' if sheet == ws else sheet.title.upper(), color=NAVY, size=20, bold=True, height=42)
+        brand_title(sheet, columns, 'ПРОБНЫЙ СВОДНЫЙ РЕЕСТР' if sheet == ws else sheet.title.upper())
+        brand_stripe(sheet, 4, columns)
     by_id = {t['id']: t for t in catalog['topics']}
     merged, counts = [], Counter()
     for response in responses.values():
@@ -345,7 +411,7 @@ def consolidate(catalog, files, output):
     merged.sort(key=lambda r: (normalize(r[1]), normalize(r[3])))
     demo = all(r['name'].startswith('Демо-лектор') for r in responses.values())
     sample_note = 'Лекторы в этом примере вымышлены.' if demo else 'Данные из полученных анкет; прежние назначения не импортированы.'
-    band(ws, 2, 1, 9, f'Получено анкет: {len(responses)} · Отметок: {len(merged)} · Повторных файлов пропущено: {len(duplicates)}. {sample_note}', color=ORANGE, height=29)
+    band(ws, 2, 1, 9, f'Получено анкет: {len(responses)} · Отметок: {len(merged)} · Повторных файлов пропущено: {len(duplicates)}. {sample_note}', color=NOTICE, height=29)
     band(ws, 3, 1, 9, 'Фильтры в заголовках: тема, программа, ФИО, готовность. «Частично» требует уточнения объёма; пустая анкета не является отказом.', height=29)
     table(ws, ['Код темы', 'Тема', 'Программа', 'ФИО лектора', 'Готовность', 'Комментарий', 'Требует уточнения', 'Дата анкеты', 'Файл ответа'], merged, name='LecturerTopicRegistry', heights=68)
     cat_rows = []
