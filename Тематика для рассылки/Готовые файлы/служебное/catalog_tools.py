@@ -127,7 +127,8 @@ def add_details(wb, data, back_sheet, back_col, first_row, id_col):
                     location = f"УТП: таблица {u['utp_table']}, строка {u['utp_row']}"
                 else:
                     location = 'Тема добавлена непосредственно из обновлённой программы'
-                locator = f"{u['program']} — {p['title']}\n{u['section']} · {location}"
+                section = re.sub(r'^Раздел(?:\s*:\s*|\s+)', '', u['section'].strip(), flags=re.IGNORECASE)
+                locator = f"{u['program']} — {p['title']}\nРаздел: {section} · {location}"
                 b.band(s, row, 1, 7, locator, height=51); row += 1
                 if u['source_headings']:
                     b.band(s, row, 1, 7, 'В программе: '+' / '.join(u['source_headings']),
