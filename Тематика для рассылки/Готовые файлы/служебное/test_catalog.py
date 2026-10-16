@@ -54,24 +54,36 @@ class CatalogueTest(unittest.TestCase):
     def test_updated_okbo_coverage(self):
         d=self.data;update=d['latest_source_update'];by_id={t['id']:t for t in d['topics']}
         self.assertEqual(len(d['programs']),18)
-        self.assertEqual(d['stats']['utp_rows'],329)
-        self.assertEqual(d['stats']['program_only_rows'],3)
+        self.assertEqual(d['stats']['utp_rows'],327)
+        self.assertEqual(d['stats']['program_only_rows'],0)
         self.assertEqual(len(update['coverage']),32)
         program=next(p for p in d['programs'] if p['code']=='ОКБО')
         self.assertEqual(program['program_sha256'],update['source']['sha256'])
-        self.assertNotEqual(program['program_sha256'],update['previous_source']['sha256'])
+        self.assertEqual(program['utp_sha256'],update['utp_source']['sha256'])
+        self.assertEqual(program['utp_url'],'https://drive.google.com/file/d/1bOUvJIn8iJR-cZNs_B-_NVS1Z9rSGipG/view')
+        self.assertNotEqual(program['utp_sha256'],update['previous_utp_source']['sha256'])
         self.assertEqual(len(by_id),len(d['topics']))
+        okbo=[u for t in d['topics'] for u in t['usages'] if u['program']=='ОКБО']
+        self.assertEqual(len(okbo),32)
+        self.assertTrue(all(u['content'] and u['utp_table'] and u['utp_row'] for u in okbo))
+        self.assertEqual(len({h for u in okbo for h in u['source_headings']}),32)
         for row in update['coverage']:
             self.assertIn(row['id'],by_id)
-            self.assertTrue(any(u['program']=='ОКБО' and u['content'] for u in by_id[row['id']]['usages']))
-        self.assertEqual({t['title'] for t in update['added_topics']},{
+            uses=[u for u in by_id[row['id']]['usages'] if u['program']=='ОКБО']
+            self.assertEqual(len(uses),1)
+            self.assertEqual((uses[0]['utp_title'],uses[0]['utp_table'],uses[0]['utp_row']),
+                             (row['utp_title'],row['utp_table'],row['utp_row']))
+        self.assertEqual({t['title'] for t in update['former_program_only_topics_now_in_utp']},{
             'Подключение различных источников событий',
             'Нормализация событий, корреляция, обработка ложных событий',
             'Совместное функционирование систем SIEM, SOAR и TIP'})
-        for item in update['added_topics']:
+        for item in update['former_program_only_topics_now_in_utp']:
             uses=[u for u in by_id[item['id']]['usages'] if u['program']=='ОКБО']
-            self.assertTrue(all(u['source_kind']=='program' and u['utp_row'] is None and u['content'] for u in uses))
-        self.assertEqual(sum(not u['content'] for t in d['topics'] for u in t['usages']),3)
+            self.assertTrue(all(u['source_kind']=='utp' and u['utp_row'] and u['content'] for u in uses))
+        for item in update['removed_obsolete_topics']:
+            self.assertNotIn(item['id'],by_id)
+        self.assertEqual(update['remaining_missing_descriptions'],[])
+        self.assertEqual(sum(not u['content'] for t in d['topics'] for u in t['usages']),0)
 
     def test_topic_readiness_and_partial_comments(self):
         a=self.response('a.xlsx','Тестовый лектор 1',[(self.shared,'Да',''),(self.single,'Частично','Только теория')])
@@ -112,7 +124,7 @@ class CatalogueTest(unittest.TestCase):
 
     def test_invalid_responses_and_old_versions(self):
         p=self.response('a.xlsx','Тест',[(self.shared,'Да','')]);row=self.row_by_id[self.shared['id']]
-        for cell,value in [('B4',''),('F5','ROZUM-2026-10-15-v1'),(f'E{row}','Неверно'),(f'F{row}','=1+1'),(f'A{row}','T-UNKNOWN')]:
+        for cell,value in [('B4',''),('F5','ROZUM-2026-10-15-v1'),('F5','ROZUM-2026-10-16-v2'),(f'E{row}','Неверно'),(f'F{row}','=1+1'),(f'A{row}','T-UNKNOWN')]:
             w=load_workbook(p);w['Выбор тем'][cell]=value;q=self.folder/'bad.xlsx';w.save(q);w.close()
             with self.assertRaises(ValueError,msg=cell):m.read_response(q,self.data)
 
